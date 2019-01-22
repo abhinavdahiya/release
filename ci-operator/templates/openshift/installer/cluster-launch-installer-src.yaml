@@ -385,7 +385,7 @@ objects:
           export PATH=$PATH:/tmp/shared
 
           echo "Gathering artifacts ..."
-          mkdir -p /tmp/artifacts/pods /tmp/artifacts/nodes /tmp/artifacts/metrics /tmp/artifacts/bootstrap
+          mkdir -p /tmp/artifacts/pods /tmp/artifacts/nodes /tmp/artifacts/metrics /tmp/artifacts/bootstrap /tmp/artifacts/bootstrap/containers
 
           if [ -f /tmp/artifacts/installer/terraform.tfstate ]
           then
@@ -398,6 +398,20 @@ objects:
 
               if [ -n "${bootstrap_ip}" ]
               then
+                curl --insecure --silent --url "https://${bootstrap_ip}:10250/pods" | python -c \
+                  'import sys, json; c = reduce(lambda a, b: a+b ,map(lambda x: map(lambda y: x["metadata"]["namespace"]+"/"+x["metadata"]["name"]+"/"+y["name"], x["spec"]["containers"] if "containers" in x["spec"] else [] + x["spec"]["initContainers"] if "initContainers" in x["spec"] else []), json.load(sys.stdin)["items"])); sys.stdout.write("\n".join(c))' \
+                  > /tmp/bootstrap-containers
+
+                for IFS= read -r -i; do
+                  file="$( echo "$i" | tr -s '/' '_' )"
+                  queue "/tmp/artifacts/bootstrap/containers/$file" curl \
+                      --insecure \
+                      --silent \
+                      --connect-timeout 5 \
+                      --retry 3 \
+                      --url "https://${bootstrap_ip}:10250/containerLogs/$i"
+                done < /tmp/bootstrap-containers
+
                 for service in bootkube openshift kubelet crio
                 do
                     queue "/tmp/artifacts/bootstrap/${service}.service" curl \
